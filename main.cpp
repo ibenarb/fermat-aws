@@ -154,7 +154,7 @@ int main(int argc, char** argv) {
 
     unsigned mod2k = 0;					// OFF by default
     std::vector<int> sieve_primes;		// OFF by default
-    std::uint64_t sieve_cap = 5000000;	// default cap; OK up to prime 19 (M≈4.85e6)
+    std::uint64_t sieve_cap = 4000000000ULL;	// default cap; OK up to prime 19 (M≈4.85e6)
 
     for (int i = 2; i < argc; i++) {
         std::string s(argv[i]);
@@ -178,7 +178,7 @@ int main(int argc, char** argv) {
         } else if (s == "--sieve-cap" && i + 1 < argc) {
             sieve_cap = std::stoull(argv[++i]);
             if (sieve_cap < 10000) sieve_cap = 10000;
-            if (sieve_cap > 50000000) sieve_cap = 50000000;	// ~200 MB jump table
+            if (sieve_cap > 4000000000ULL) sieve_cap = 4000000000ULL;	// ~200 MB jump table
         }
     }
     if (T == 0) T = 1;
