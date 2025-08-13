@@ -136,7 +136,7 @@ static double sieve_alpha_legendre(const mpz_class& N, const std::vector<int>& p
 int main(int argc, char** argv) {
     if (argc < 2) {
         std::cerr << "usage: fermat N [--threads T] [--max-tests-per-thread K] [--seconds S] [--affinity] "
-                     "[--mod2k K] [--sieve-up-to P | --sieve-primes a,b,c] [--sieve-cap M]\n";
+                     "[--mod2k K] [--sieve-up-to P | --sieve-primes a,b,c] [--sieve-cap M] [--force-large-sieve]\n";
         return 2;
     }
 
@@ -154,7 +154,8 @@ int main(int argc, char** argv) {
 
     unsigned mod2k = 0;					// OFF by default
     std::vector<int> sieve_primes;		// OFF by default
-    std::uint64_t sieve_cap = 4000000000ULL;	// default cap; OK up to prime 19 (M≈4.85e6)
+    std::uint64_t sieve_cap = 5000000;	// default cap; OK up to prime 19 (M≈4.85e6)
+    bool force_large_sieve = false;		// require explicit opt-in for huge M
 
     for (int i = 2; i < argc; i++) {
         std::string s(argv[i]);
@@ -178,7 +179,9 @@ int main(int argc, char** argv) {
         } else if (s == "--sieve-cap" && i + 1 < argc) {
             sieve_cap = std::stoull(argv[++i]);
             if (sieve_cap < 10000) sieve_cap = 10000;
-            if (sieve_cap > 4000000000ULL) sieve_cap = 4000000000ULL;	// ~200 MB jump table
+            if (sieve_cap > 4000000000ull) sieve_cap = 4000000000ull;	// allow M up to ~4e9 (P=29)
+        } else if (s == "--force-large-sieve") {
+            force_large_sieve = true;
         }
     }
     if (T == 0) T = 1;
@@ -230,6 +233,20 @@ int main(int argc, char** argv) {
             if (allowed_residues_modM.empty()) break;
         }
         if (!allowed_residues_modM.empty() && sieve_mod > 1) sieve_on = true;
+
+        // ---- safety & memory estimate for very large M ----
+        if (sieve_on) {
+            long double persist = (long double)sieve_mod * ((long double)sizeof(unsigned) + (long double)sizeof(char));	// jump + mask
+            long double transient = (long double)sieve_mod * ((long double)sizeof(std::uint32_t) + (long double)sizeof(unsigned));	// cycle + dist (per-cycle upper bound)
+            long double peak = persist + transient;	// rough upper bound during jump build
+            auto toGiB = [](long double b){ return b / (1024.0L * 1024.0L * 1024.0L); };
+            std::cerr << "[sieve] M=" << sieve_mod
+                      << " persistent≈" << toGiB(persist) << " GiB, peak≈" << toGiB(peak) << " GiB\n";
+            if (sieve_mod >= 200000000ull && !force_large_sieve) {
+                std::cerr << "[sieve] very large sieve (M>=2e8). Re-run with --force-large-sieve if you have enough RAM.\n";
+                return 2;
+            }
+        }
     }
 
     // -------- compute density α for progress (approximate) --------
