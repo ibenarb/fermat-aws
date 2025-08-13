@@ -11,6 +11,7 @@
 #include <vector>
 #include <algorithm>
 #include <sstream>
+#include <iomanip>
 
 #include "progress.h"
 
@@ -136,7 +137,7 @@ static double sieve_alpha_legendre(const mpz_class& N, const std::vector<int>& p
 int main(int argc, char** argv) {
     if (argc < 2) {
         std::cerr << "usage: fermat N [--threads T] [--max-tests-per-thread K] [--seconds S] [--affinity] "
-                     "[--mod2k K] [--sieve-up-to P | --sieve-primes a,b,c] [--sieve-cap M]\n";
+                     "[--mod2k K] [--sieve-up-to P | --sieve-primes a,b,c] [--sieve-cap M] [--force-large-sieve]\n";
         return 2;
     }
 
@@ -154,7 +155,8 @@ int main(int argc, char** argv) {
 
     unsigned mod2k = 0;					// OFF by default
     std::vector<int> sieve_primes;		// OFF by default
-    std::uint64_t sieve_cap = 4000000000ULL;	// default cap; OK up to prime 19 (M≈4.85e6)
+    std::uint64_t sieve_cap = 4000000000ull;	// raised default cap (~3.73 GiB address span in entries)
+    bool force_large_sieve = false;		// require explicit opt-in for huge tables
 
     for (int i = 2; i < argc; i++) {
         std::string s(argv[i]);
@@ -178,7 +180,9 @@ int main(int argc, char** argv) {
         } else if (s == "--sieve-cap" && i + 1 < argc) {
             sieve_cap = std::stoull(argv[++i]);
             if (sieve_cap < 10000) sieve_cap = 10000;
-            if (sieve_cap > 4000000000ULL) sieve_cap = 4000000000ULL;	// ~200 MB jump table
+            if (sieve_cap > 50000000000ull) sieve_cap = 50000000000ull; // hard stop ~50e9 residues
+        } else if (s == "--force-large-sieve") {
+            force_large_sieve = true;
         }
     }
     if (T == 0) T = 1;
@@ -219,6 +223,10 @@ int main(int argc, char** argv) {
         allowed_residues_modM = {0};
         for (int p : sieve_primes) {
             if (p < 3 || (p % 2 == 0)) continue;
+            if (!force_large_sieve && sieve_mod * static_cast<std::uint64_t>(p) > 50000000ull) {
+                std::cerr << "[sieve] cap 50000000 reached without --force-large-sieve; dropping primes >= " << p << "\n";
+                break;
+            }
             if (sieve_mod * static_cast<std::uint64_t>(p) > sieve_cap) {
                 std::cerr << "[sieve] cap " << sieve_cap << " reached; dropping primes >= " << p << "\n";
                 break;
@@ -256,11 +264,49 @@ int main(int argc, char** argv) {
     std::vector<char> allowed_mask;
     std::uint64_t stride_modM = 0;
 
+    // Pre-print estimate if we know M
     if (sieve_on) {
+        const long double M = static_cast<long double>(sieve_mod);
+        long double persistent_est_bytes = M * (sizeof(unsigned) + sizeof(char)); // 5 bytes per residue
+        long double temp_peak_est_bytes = M * 13.0L; // empirical upper bound of our implementation
+        auto toGiB = [](long double b){ return static_cast<double>(b / (1024.0L*1024.0L*1024.0L)); };
+        std::cerr << std::fixed << std::setprecision(6)
+                  << "[sieve] M=" << sieve_mod
+                  << " persistent≈" << toGiB(persistent_est_bytes) << " GiB,"
+                  << " peak≈" << toGiB(temp_peak_est_bytes) << " GiB\n";
+    }
+
+    // -------- start progress reporter (thread-0 only) --------
+    {
+        ProgressConfig pcfg{
+                &g_thread0_tests,				// counter_thread0
+                10.0,							// report every 10 seconds
+                T,								// here T is both threads and AP stride factor (stride_ui = 2*T)
+                alpha,							// sieve density
+                N.get_mpz_t(),					// mpz_srcptr to N (see progress.h)
+                &g_stop_progress
+        };
+        start_thread0_progress(pcfg);
+    }
+
+    auto t0 = std::chrono::steady_clock::now();
+
+    // Build jump table with timing + actual memory accounting
+    double jump_build_secs = 0.0;
+    std::uint64_t persistent_actual_bytes = 0;
+    std::uint64_t temp_peak_actual_bytes = 0;
+
+    if (sieve_on) {
+        auto jb_start = std::chrono::steady_clock::now();
+
         allowed_mask.assign(static_cast<std::size_t>(sieve_mod), 0);
         for (auto r : allowed_residues_modM) allowed_mask[static_cast<std::size_t>(r)] = 1;
 
         jump.assign(static_cast<std::size_t>(sieve_mod), 0);
+        persistent_actual_bytes =
+                static_cast<std::uint64_t>(allowed_mask.size() * sizeof(char)) +
+                static_cast<std::uint64_t>(jump.size() * sizeof(unsigned));
+
         stride_modM = (sieve_mod ? static_cast<std::uint64_t>(stride_ui) % sieve_mod : 0);
         auto g = gcd64(sieve_mod, (stride_modM ? stride_modM : sieve_mod));	// g>=1 if sieve_mod>0
         if (g > 1) {
@@ -271,6 +317,16 @@ int main(int argc, char** argv) {
 
         std::vector<std::uint32_t> cycle; cycle.reserve(static_cast<std::size_t>(cycle_len));
         std::vector<unsigned> dist;       dist.reserve(static_cast<std::size_t>(cycle_len));
+        std::vector<std::size_t> pos;     pos.reserve(static_cast<std::size_t>(cycle_len / 2 + 1));
+
+        auto account_peak = [&](){
+            std::uint64_t bytes =
+                    static_cast<std::uint64_t>(cycle.capacity() * sizeof(std::uint32_t)) +
+                    static_cast<std::uint64_t>(dist.capacity()  * sizeof(unsigned)) +
+                    static_cast<std::uint64_t>(pos.capacity()   * sizeof(std::size_t));
+            if (bytes > temp_peak_actual_bytes) temp_peak_actual_bytes = bytes;
+        };
+        account_peak();
 
         for (std::uint64_t c = 0; c < g; ++c) {
             cycle.clear();
@@ -281,9 +337,15 @@ int main(int argc, char** argv) {
             } while (r != (c % sieve_mod));
 
             const std::size_t L = cycle.size();
-            dist.assign(L, 0);
+            dist.assign(L, 0u);
+            pos.clear();
 
-            std::vector<std::size_t> pos;
+            // grow capacities predictably, update temp peak
+            if (cycle.capacity() < L) cycle.reserve(L);
+            if (dist.capacity()  < L) dist.reserve(L);
+            if (pos.capacity()   < L/2 + 1) pos.reserve(L/2 + 1);
+            account_peak();
+
             for (std::size_t i = 0; i < L; ++i)
                 if (allowed_mask[static_cast<std::size_t>(cycle[i])]) pos.push_back(i);
 
@@ -304,22 +366,16 @@ int main(int argc, char** argv) {
             }
             for (std::size_t i = 0; i < L; ++i) jump[static_cast<std::size_t>(cycle[i])] = dist[i];
         }
-    }
 
-    // -------- start progress reporter (thread-0 only) --------
-    {
-        ProgressConfig pcfg{
-                &g_thread0_tests,				// counter_thread0
-                10.0,							// report every 60 minutes (adjust if you like)
-                T,								// here T is both threads and AP stride factor (stride_ui = 2*T)
-                alpha,							// sieve density
-                N.get_mpz_t(),					// mpz_srcptr to N (see progress.h)
-                &g_stop_progress
-        };
-        start_thread0_progress(pcfg);
-    }
+        auto jb_end = std::chrono::steady_clock::now();
+        jump_build_secs = std::chrono::duration<double>(jb_end - jb_start).count();
 
-    auto t0 = std::chrono::steady_clock::now();
+        auto toGiB64 = [](std::uint64_t b){ return static_cast<double>(static_cast<long double>(b) / (1024.0L*1024.0L*1024.0L)); };
+        std::cerr << std::fixed << std::setprecision(6)
+                  << "[sieve] build_time_sec=" << jump_build_secs
+                  << " persistent_actual≈" << toGiB64(persistent_actual_bytes) << " GiB,"
+                  << " temp_peak_actual≈" << toGiB64(temp_peak_actual_bytes) << " GiB\n";
+    }
 
     for (unsigned i = 0; i < T; i++) {
         workers.emplace_back([&, i]() {
@@ -430,8 +486,10 @@ int main(int argc, char** argv) {
                     }
 
                     // move to next allowed residue
-                    unsigned m_next = jump[static_cast<std::size_t>(r_modM)];
-                    advance_mm(m_next);
+                    {
+                        unsigned m_next = jump[static_cast<std::size_t>(r_modM)];
+                        advance_mm(m_next);
+                    }
 
                     // per-thread cap?
                     if (max_tests_per_thread && local >= max_tests_per_thread) {
