@@ -1,0 +1,3 @@
+/home/rb/src/fermat-aws/cmake-build-release-wsl-fast/CMakeFiles/fermat.dir
+/home/rb/src/fermat-aws/cmake-build-release-wsl-fast/CMakeFiles/edit_cache.dir
+/home/rb/src/fermat-aws/cmake-build-release-wsl-fast/CMakeFiles/rebuild_cache.dir

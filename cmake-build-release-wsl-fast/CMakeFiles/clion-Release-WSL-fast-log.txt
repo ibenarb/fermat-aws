@@ -1,0 +1,4 @@
+/usr/bin/cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_MAKE_PROGRAM=/usr/bin/ninja -DGMP_LIB=/usr/lib/x86_64-linux-gnu/libgmp.so -DGMPXX_LIB=/usr/lib/x86_64-linux-gnu/libgmpxx.so -G Ninja -S /home/rb/src/fermat-aws -B /home/rb/src/fermat-aws/cmake-build-release-wsl-fast
+-- Configuring done (0.0s)
+-- Generating done (0.0s)
+-- Build files have been written to: /home/rb/src/fermat-aws/cmake-build-release-wsl-fast

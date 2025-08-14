@@ -14,6 +14,7 @@
 #include <iomanip>
 
 #include "progress.h"
+#include "sqfilter.hpp"
 
 // thread-0 progress counter and stop flag
 std::atomic<uint64_t> g_thread0_tests{0};
@@ -211,6 +212,9 @@ int main(int argc, char** argv) {
     bool need_a_odd  = (n_mod4 == 1);
     bool need_a_even = (n_mod4 == 3);
 
+    // --- SQFILTER (mod M) setup ---
+    const unsigned n_mod_sq = (sqf::M ? static_cast<unsigned>(mpz_fdiv_ui(N.get_mpz_t(), sqf::M)) : 0u);
+
     // -------- build odd-prime sieve (optional) --------
     std::uint64_t sieve_mod = 1;
     std::vector<std::uint32_t> allowed_residues_modM; // residues a mod M that survive
@@ -391,6 +395,11 @@ int main(int argc, char** argv) {
             std::uint64_t r_modM = 0;
             if (sieve_on) r_modM = mpz_fdiv_ui(a.get_mpz_t(), static_cast<unsigned long>(sieve_mod));
 
+            // SQFILTER per-thread state (a mod M and stride mod M)
+            unsigned x_mod_sq = (sqf::M ? static_cast<unsigned>(mpz_fdiv_ui(a.get_mpz_t(), sqf::M)) : 0u);
+            unsigned step_sq  = (sqf::M ? static_cast<unsigned>(stride_ui % sqf::M) : 0u);
+
+
             mpz_class d = a * a - N;
 
             mpz_class delta;
@@ -413,6 +422,12 @@ int main(int argc, char** argv) {
                 if (sieve_on) {
                     auto adv = (stride_modM * static_cast<std::uint64_t>(mm)) % sieve_mod;
                     r_modM += adv; if (r_modM >= sieve_mod) r_modM -= sieve_mod;
+                }
+                // SQFILTER: update a mod sqf::M by mm steps
+                if (sqf::M) {
+                    unsigned adv_sq = static_cast<unsigned>((1ull * step_sq * mm) % sqf::M);
+                    x_mod_sq += adv_sq;
+                    if (x_mod_sq >= sqf::M) x_mod_sq -= sqf::M;
                 }
             };
 
@@ -440,6 +455,26 @@ int main(int argc, char** argv) {
                             return;
                         }
                         advance_mm(m); // land on allowed residue
+                    }
+
+                    // SQFILTER prefilter at current allowed residue
+                    if (sqf::M) {
+                        unsigned r_sq = static_cast<unsigned>((1ull * x_mod_sq * x_mod_sq + sqf::M - n_mod_sq) % sqf::M);
+                        if (!sqf::ok(r_sq)) {
+                            // skip this allowed candidate, jump to the next allowed
+                            unsigned m_next = jump[static_cast<std::size_t>(r_modM)];
+                            advance_mm(m_next); // counts current + skipped
+                            if (max_tests_per_thread && local >= max_tests_per_thread) {
+                                {
+                                    std::scoped_lock lk(res_mx);
+                                    if (!res.found) res.limit_reached = true;
+                                }
+                                tries_by_thread[i] = local;
+                                stop_all.store(true, std::memory_order_relaxed);
+                                return;
+                            }
+                            continue;
+                        }
                     }
 
                     // optional mod 2^K prefilter (for the allowed candidate)
@@ -509,6 +544,24 @@ int main(int argc, char** argv) {
                     unsigned long low = mpz_get_ui(d.get_mpz_t());
                     auto rbits = static_cast<std::uint32_t>(low & M2);
                     if (((sqmask[rbits >> 6] >> (rbits & 63u)) & 1ull) == 0ull) {
+                        advance_mm(1u);
+                        if (max_tests_per_thread && local >= max_tests_per_thread) {
+                            {
+                                std::scoped_lock lk(res_mx);
+                                if (!res.found) res.limit_reached = true;
+                            }
+                            tries_by_thread[i] = local;
+                            stop_all.store(true, std::memory_order_relaxed);
+                            return;
+                        }
+                        continue;
+                    }
+                }
+
+                // SQFILTER prefilter (no-sieve path)
+                if (sqf::M) {
+                    unsigned r_sq = static_cast<unsigned>((1ull * x_mod_sq * x_mod_sq + sqf::M - n_mod_sq) % sqf::M);
+                    if (!sqf::ok(r_sq)) {
                         advance_mm(1u);
                         if (max_tests_per_thread && local >= max_tests_per_thread) {
                             {

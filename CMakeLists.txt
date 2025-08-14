@@ -8,6 +8,7 @@ set(CMAKE_BUILD_TYPE Release)
 add_executable(fermat
 		main.cpp
 		progress.cpp
+		sqfilter.hpp
 )
 
 # Compile & link flags (GCC/Clang)
