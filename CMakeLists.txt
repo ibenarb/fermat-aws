@@ -2,6 +2,8 @@ cmake_minimum_required(VERSION 3.22)
 project(Fermat LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
 
+# chore: CLion sanity commit – no functional change
+
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(GMP REQUIRED gmp)
 find_package(Threads REQUIRED)
