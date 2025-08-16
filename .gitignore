@@ -1,0 +1,31 @@
+# Build outputs
+/build/
+/cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+*.ninja
+*.ninja_deps
+*.ninja_log
+
+# IDE
+/.idea/
+
+# Binaries & libs
+*.o
+*.a
+*.so
+*.dll
+*.dylib
+fermat
+fermat_shard
+
+# Archives & logs
+*.log
+*.tar
+*.tar.gz
+*.zip
+
+# Local archives we created earlier
+/.archive/
