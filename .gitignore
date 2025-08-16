@@ -1,31 +1,61 @@
-# Build outputs
+# === Build directories ===
 /build/
+/build-*/
 /cmake-build-*/
+/out/
+/bin/
+/dist/
+/obj/
+
+# === CMake / Ninja artifacts ===
 CMakeFiles/
-CMakeCache.txt
+/CMakeCache.txt
 cmake_install.cmake
+install_manifest.txt
+CTestTestfile.cmake
 Makefile
-*.ninja
-*.ninja_deps
-*.ninja_log
+build.ninja
+.ninja_log
+.ninja_deps
 
-# IDE
-/.idea/
-
-# Binaries & libs
+# === Objects / archives / binaries ===
 *.o
+*.obj
 *.a
+*.la
+*.lo
 *.so
-*.dll
+*.so.*
 *.dylib
-fermat
-fermat_shard
+*.dll
+*.dSYM/
+*.exe
+*.out
 
-# Archives & logs
+# === Coverage ===
+*.gcda
+*.gcno
+*.gcov
+
+# === CLion / IntelliJ ===
+.idea/
+
+# === VS Code (optional) ===
+.vscode/
+
+# === Caches / tools ===
+.ccache/
+.cache/
+.clangd/
+compile_commands.json
+
+# === Logs ===
 *.log
-*.tar
-*.tar.gz
-*.zip
 
-# Local archives we created earlier
-/.archive/
+# === OS junk ===
+.DS_Store
+Thumbs.db
+
+# === Core dumps ===
+core
+core.*
