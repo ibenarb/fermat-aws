@@ -51,6 +51,26 @@ FERMAT_LTO=ON enables link-time optimization.
 
 Release builds are strongly recommended.
 
+## Reporting
+
+Each run appends to a text log with a timestamped header and an end-of-run block.
+
+### Where the log goes
+Resolution precedence:
+1. `--report-file <PATH>` (CLI)
+2. `FERMAT_REPORT_FILE` (environment)
+3. Repo root detected by walking up from the executable’s directory looking for `.git` or `CMakeLists.txt`
+4. Executable directory (fallback)
+
+Example:
+```bash
+./build/clion-Release/fermat 10000000000360999999998869 --threads 2 --sieve-up-to 19
+# or override:
+FERMAT_REPORT_FILE=/tmp/fermat_runs.txt ./build/clion-Release/fermat ...
+# or:
+./build/clion-Release/fermat ... --report-file /tmp/fermat_runs.txt
+
+
 Quick start
 
 Small demo:
