@@ -59,3 +59,5 @@ Thumbs.db
 # === Core dumps ===
 core
 core.*
+reports.txt
+.archive/

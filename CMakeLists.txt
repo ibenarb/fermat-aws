@@ -33,6 +33,7 @@ add_executable(fermat
   src/progress.cpp
   src/progress.h
   src/sqfilter.hpp
+  src/ReportFile.h
 )
 target_include_directories(fermat PRIVATE ${GMP_INCLUDE_DIRS})
 target_link_libraries(fermat PRIVATE gmpxx ${GMP_LIBRARIES} Threads::Threads)

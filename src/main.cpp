@@ -13,6 +13,8 @@
 #include <sstream>
 #include <iomanip>
 
+#include "ReportFile.h"
+#include "ReportArgs.h"
 #include "progress.h"
 #include "sqfilter.hpp"
 
@@ -31,8 +33,8 @@ static void pin_to_core(unsigned cpu){
 
 struct Result {
     bool found = false;
-    bool limit_reached = false;		// hit --max-tests-per-thread
-    bool time_limit = false;		// hit --seconds
+    bool limit_reached = false;     // hit --max-tests-per-thread
+    bool time_limit = false;        // hit --seconds
     unsigned winner_thread = ~0u;
     std::uint64_t tries_to_find = 0;
     mpz_class p, q;
@@ -154,11 +156,11 @@ int main(int argc, char** argv) {
     double seconds_limit = 0.0;
     bool use_affinity = false;
 
-    unsigned mod2k = 0;					// OFF by default
-    std::vector<int> sieve_primes;		// OFF by default
-    std::uint64_t sieve_cap = 4000000000ull;	// raised default cap (~3.73 GiB address span in entries)
-    bool force_large_sieve = false;		// require explicit opt-in for huge tables
-    unsigned sqfilter_M = 0;			// 0=OFF; e.g. 315 or 10080
+    unsigned mod2k = 0;                 // OFF by default
+    std::vector<int> sieve_primes;      // OFF by default
+    std::uint64_t sieve_cap = 4000000000ull;    // raised default cap (~3.73 GiB address span in entries)
+    bool force_large_sieve = false;     // require explicit opt-in for huge tables
+    unsigned sqfilter_M = 0;            // 0=OFF; e.g. 315 or 10080
 
     for (int i = 2; i < argc; i++) {
         std::string s(argv[i]);
@@ -190,6 +192,12 @@ int main(int argc, char** argv) {
         }
     }
     if (T == 0) T = 1;
+
+    // report header: repo-root autodetected path, optional CLI override, and CLI echo
+    ReportFile::init_from_exe(argv[0]);
+    if (const char* rf = find_cli_value(argc, argv, "report-file")) { ReportFile::set_path(rf); }
+    ReportFile::append_line(ReportFile::iso_utc_now() + " | " + join_argv_for_log(argc, argv));
+    // std::cerr << "[report] path=" << ReportFile::get_path() << "\n";  // TEMP
 
     // -------- precompute mod 2^k (only if enabled) --------
     const bool prefilter_on = (mod2k >= 6 && mod2k <= 16);
@@ -264,7 +272,7 @@ int main(int argc, char** argv) {
     const unsigned long delta_inc_ui = 2ul * s2_ui;
 
     // build jump table if sieve_on
-    std::vector<unsigned> jump;			// jump[r] = minimal m>=1 to reach next allowed; 0 = dead cycle
+    std::vector<unsigned> jump;         // jump[r] = minimal m>=1 to reach next allowed; 0 = dead cycle
     std::vector<char> allowed_mask;
     std::uint64_t stride_modM = 0;
 
@@ -291,11 +299,11 @@ int main(int argc, char** argv) {
     // -------- start progress reporter (thread-0 only) --------
     {
         ProgressConfig pcfg{
-                &g_thread0_tests,				// counter_thread0
-                1.0,							// report every 10 minutes
-                T,								// here T is both threads and AP stride factor (stride_ui = 2*T)
-                alpha,							// sieve density
-                N.get_mpz_t(),					// mpz_srcptr to N (see progress.h)
+                &g_thread0_tests,              // counter_thread0
+                1.0,                           // report every 10 minutes
+                T,                             // here T is both threads and AP stride factor (stride_ui = 2*T)
+                alpha,                         // sieve density
+                N.get_mpz_t(),                 // mpz_srcptr to N (see progress.h)
                 &g_stop_progress
         };
         start_thread0_progress(pcfg);
@@ -320,7 +328,7 @@ int main(int argc, char** argv) {
                 static_cast<std::uint64_t>(jump.size() * sizeof(unsigned));
 
         stride_modM = (sieve_mod ? static_cast<std::uint64_t>(stride_ui) % sieve_mod : 0);
-        auto g = gcd64(sieve_mod, (stride_modM ? stride_modM : sieve_mod));	// g>=1 if sieve_mod>0
+        auto g = gcd64(sieve_mod, (stride_modM ? stride_modM : sieve_mod));  // g>=1 if sieve_mod>0
         if (g > 1) {
             std::cerr << "[sieve] note: gcd(2*T, M) = " << g
                       << " (M=" << sieve_mod << "). Choose T with gcd=1 for best speed.\n";
@@ -328,8 +336,8 @@ int main(int argc, char** argv) {
         auto cycle_len = sieve_mod / g;
 
         std::vector<std::uint32_t> cycle; cycle.reserve(static_cast<std::size_t>(cycle_len));
-        std::vector<unsigned> dist;	   dist.reserve(static_cast<std::size_t>(cycle_len));
-        std::vector<std::size_t> pos;	 pos.reserve(static_cast<std::size_t>(cycle_len / 2 + 1));
+        std::vector<unsigned> dist;    dist.reserve(static_cast<std::size_t>(cycle_len));
+        std::vector<std::size_t> pos;  pos.reserve(static_cast<std::size_t>(cycle_len / 2 + 1));
 
         auto account_peak = [&](){
             std::uint64_t bytes =
@@ -372,7 +380,7 @@ int main(int argc, char** argv) {
                 std::size_t gap = (t >= s ? (t - s) : (L - (s - t)));
                 for (std::size_t j = 0; j < gap; ++j) {
                     std::size_t idx = (s + j) % L;
-                    std::size_t d = gap - j;		// minimal m>=1 from idx to next allowed
+                    std::size_t d = gap - j;        // minimal m>=1 from idx to next allowed
                     dist[idx] = static_cast<unsigned>(d);
                 }
             }
@@ -622,6 +630,7 @@ int main(int argc, char** argv) {
     std::uint64_t sum = 0;
     for (auto v : tries_by_thread) sum += v;
 
+    // ----- stdout summary -----
     if (res.found) {
         std::cout << "FOUND\n";
         std::cout << "p=" << res.p << "\n";
@@ -650,5 +659,56 @@ int main(int argc, char** argv) {
         std::cout << "\n";
     }
     std::cout << "sieve_mod=" << (sieve_on ? sieve_mod : 0) << "\n";
+
+    // ----- append end-of-run block to report file (winner's a only, if found) -----
+    {
+        std::ostringstream rep;
+        // Status line
+        rep << ReportFile::iso_utc_now() << " | END ";
+        if (res.found)         rep << "FOUND\n";
+        else if (res.limit_reached) rep << "NOT_FOUND_LIMIT\n";
+        else if (seconds_limit > 0.0 && !res.found) rep << "TIME_LIMIT\n";
+        else                  rep << "ABORTED\n";
+
+        // Basic params
+        rep << "threads=" << T << "\n";
+        rep << "seconds_limit=" << seconds_limit << "\n";
+        rep << "max_tests_per_thread=" << max_tests_per_thread << "\n";
+        rep << "mod2k=" << (prefilter_on ? static_cast<int>(K) : 0) << "\n";
+        rep << "sqfilter_M=" << (SQ.enabled() ? static_cast<unsigned>(sqM_used) : 0) << "\n";
+        rep << "sieve_mod=" << (sieve_on ? sieve_mod : 0) << "\n";
+        if (!sieve_primes.empty()) {
+            rep << "sieve_primes=";
+            for (std::size_t i = 0; i < sieve_primes.size(); ++i) {
+                if (i) rep << ",";
+                rep << sieve_primes[i];
+            }
+            rep << "\n";
+        }
+
+        // Metrics
+        rep << "tests_sum=" << sum << "\n";
+        rep << "tests_per_sec=" << (secs > 0 ? (static_cast<double>(sum) / secs) : 0.0) << "\n";
+        rep << "time_sec=" << secs << "\n";
+        rep << "sieve_build_time_sec=" << std::fixed << std::setprecision(6) << jump_build_secs << "\n";
+
+        // Results
+        if (res.found) {
+            rep << "winner_thread=" << res.winner_thread << "\n";
+            rep << "tries_to_find=" << res.tries_to_find << "\n";
+            rep << "p=" << res.p << "\n";
+            rep << "q=" << res.q << "\n";
+            // winner's a := (p+q)/2 - ceil_sqrt(N)
+            mpz_class sqrtN, r;
+            mpz_sqrtrem(sqrtN.get_mpz_t(), r.get_mpz_t(), N.get_mpz_t());
+            if (r != 0) sqrtN += 1;
+            mpz_class x = (res.p + res.q) / 2;
+            mpz_class a_last = x - sqrtN;
+            rep << "[last_a] winner=" << a_last << "\n\n";
+        }
+
+        ReportFile::append_block(rep.str());
+    }
+
     return res.found ? 0 : 1;
 }
